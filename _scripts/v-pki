@@ -1,0 +1,1079 @@
+#!/bin/bash
+
+#
+#############################################################################@#
+# THIS SCRIPT IS PROVIDED AS IS WITH NO WARRANTY OR SUPPORT
+# The author is not responsible for any damage or loss caused by the use of this script
+# Use at your own risk
+###############################################################################
+# IKEv2-Okta PKI Management Script
+###############################################################################
+#
+# Description:
+#   This script manages Vault PKI (Public Key Infrastructure) operations for IKEv2-Okta
+#   integration, including certificate creation and management.
+#
+# Author: Felix C Frank
+# Contact: felix.c.frank@proton.me
+# Version: 1.0
+# Created: 2024
+#
+# Environment:
+#   Designed for Debian-based virtualized environments:
+#   - AWS
+#   - VMware
+#   - Proxmox
+#
+# Usage:
+# PKI Management:
+#   - generate-client EMAIL TTL
+#   - generate-host HOSTNAME TTL
+#   - revoke-certificate IDENTIFIER
+#   - export-certificate TYPE NAME
+#   - list-certificates
+#
+# Vault Management:
+#   - unseal-vault
+#   - seal-vault
+#
+# Configuration:
+#   - check-directories
+#   - set-permissions
+#   - help
+#
+#
+#
+# Author: Felix C Frank 2024
+# Version: 1.7.50.1
+# Created: 27-12-24
+## feedback mailto:felix.c.frank@proton.me
+###############################################################################
+
+
+CONFIG_PATH="/etc/strongconn.conf"
+
+source "${CONFIG_PATH}"
+# Ensure VAULT_ADDR is set (don't overwrite if it already exists in config)
+VAULT_ADDR="${VAULT_ADDR:-https://127.0.0.1:8200}"
+VAULT_API="https://127.0.0.1:8200/v1/pki"
+
+# Export necessary variables
+export VAULT_TOKEN
+export VAULT_ADDR
+export VAULT_API
+function log() {
+    printf "%s - %s\n" "$(date +'%Y-%m-%d %H:%M:%S')" "$1"
+}
+
+
+function error_exit() {
+    printf "Error: %s\n" "$1" >&2
+    exit 1
+}
+
+
+function wait_for_vault() {
+    local retries=5
+    local delay=2
+    local count=0
+    
+    until vault status >/dev/null 2>&1; do
+        count=$((count + 1))
+        if ((count >= retries)); then
+            echo "Vault is not ready after $((retries * delay)) seconds."
+            return 1
+        fi
+        sleep "$delay"
+    done
+}
+
+
+function vault_api() {
+    local method=$1
+    local endpoint=$2
+    local data=$3
+    curl -s -H "X-Vault-Token: $VAULT_TOKEN" -H "Content-Type: application/json" \
+        -X "$method" "$VAULT_API/$endpoint" -d "$data"
+}
+
+function seal_vault() {
+    VAULT_ADDR="https://127.0.0.1:8200"
+
+    echo "Sealing Vault..."
+    vault operator seal || { echo "Failed to seal Vault."; return 1; }
+
+    echo "Vault sealed successfully."
+}
+
+function unseal_vault() {
+    CONFIG_PATH="/etc/strongconn.conf"
+    if [[ ! -f $CONFIG_PATH ]]; then
+        echo "Missing $CONFIG_PATH. Cannot unseal Vault."
+        return 1
+    fi
+
+    source "$CONFIG_PATH"
+
+    if [[ -z "$VAULT_UNSEAL_KEY_1" || -z "$VAULT_UNSEAL_KEY_2" || -z "$VAULT_UNSEAL_KEY_3" ]]; then
+        echo "Unseal keys are missing in $CONFIG_PATH."
+        return 1
+    fi
+    VAULT_ADDR=https://127.0.0.1:8200
+
+   
+    
+    echo "Unsealing Vault..."
+    vault operator unseal "$VAULT_UNSEAL_KEY_1" || { echo "Failed to unseal with key 1."; return 1; }
+    vault operator unseal "$VAULT_UNSEAL_KEY_2" || { echo "Failed to unseal with key 2."; return 1; }
+    vault operator unseal "$VAULT_UNSEAL_KEY_3" || { echo "Failed to unseal with key 3."; return 1; }
+
+    echo "Vault unsealed successfully."
+}
+
+function generate_powershell_script() {
+    source $CONFIG_PATH
+    local client_id="$1"
+    local powershell_script="/opt/pki/${client_id}_vpn_setup.ps1"
+
+
+    rm -f "$powershell_script"
+
+    cat <<EOF > "$powershell_script"
+# PowerShell VPN Setup Script
+\$vpnName = "${DNS_NAME}"
+\$serverIP = "${PUBLIC_IP}"
+\$dnsSuffix = "${DNS_NAME}"
+\$route = "${ROUTE_SUBNETS}" # Modify with your specific route
+
+function Remove-VpnConnectionIfExists {
+    try {
+        \$existingVpn = Get-VpnConnection -Name \$vpnName -ErrorAction Stop
+        if (\$existingVpn) {
+            Write-Host "A VPN connection with the name '\$vpnName' already exists. Removing it..."
+            Remove-VpnConnection -Name \$vpnName -Force -ErrorAction Stop
+        }
+    } catch {
+        Write-Host "No existing VPN connection found with the name '\$vpnName'. Proceeding to add new connection."
+    }
+}
+
+Remove-VpnConnectionIfExists
+
+try {
+    Add-VpnConnection -Name "\$vpnName" -ServerAddress \$serverIP -TunnelType IKEv2 -AuthenticationMethod MachineCertificate -EncryptionLevel Maximum -ErrorAction Stop
+    Set-VpnConnection -Name "\$vpnName" -DnsSuffix \$dnsSuffix
+    Set-VpnConnection -Name "\$vpnName" -SplitTunneling \$True
+    Add-VpnConnectionRoute -ConnectionName "\$vpnName" -DestinationPrefix \$route
+   
+    Set-VpnConnectionIPsecConfiguration -ConnectionName "\$vpnname" \`
+        -AuthenticationTransformConstants GCMAES256 \`
+        -CipherTransformConstants GCMAES256 \`
+        -EncryptionMethod AES256 \`
+        -IntegrityCheckMethod SHA256 \`
+        -DHGroup ECP256 \`
+        -PfsGroup ECP256 \`
+        -PassThru -Force 
+
+
+    Write-Host "VPN profile '\$vpnName' created successfully. It will prompt for username and password."
+
+    \$vpnProfile = Get-VpnConnection -Name \$vpnName
+    Write-Host "VPN Profile Details:"
+    \$vpnProfile | Format-List
+} catch {
+    Write-Host "Failed to configure the VPN profile: \$_. Exception message."
+    Exit 1
+}
+EOF
+
+
+    echo "PowerShell script generated at $powershell_script"
+}
+
+function check_directories() {
+
+    
+    log "Ensuring necessary directories exist..."
+    # Base directories (general infrastructure)
+    mkdir -p /opt/pki 2>/dev/null
+    mkdir -p /etc/swanctl 2>/dev/null
+    mkdir -p /etc/ssl 2>/dev/null
+    mkdir -p /var/lib/vault/data 2>/dev/null
+    mkdir -p /etc/vault 2>/dev/null
+    # PKI directories in /opt/pki (Certificate storage)
+    mkdir -p /opt/pki/private 2>/dev/null
+    mkdir -p /opt/pki/x509 2>/dev/null
+    mkdir -p /opt/pki/crl 2>/dev/null
+    mkdir -p /opt/pki/ocsp 2>/dev/null
+    mkdir -p /opt/pki/tmp 2>/dev/null
+    # StrongSwan-specific directories
+    mkdir -p /etc/swanctl/x509 2>/dev/null
+    mkdir -p /etc/swanctl/x509ca 2>/dev/null
+    mkdir -p /etc/swanctl/private 2>/dev/null
+    mkdir -p /etc/swanctl/x509crl 2>/dev/null
+    mkdir -p /etc/swanctl/x509ocsp 2>/dev/null
+    mkdir -p /opt/pki/private /opt/pki/x509 /opt/pki/crl 2>/dev/null
+    mkdir -p /etc/nftables.d 2>/dev/null
+    mkdir -p /etc/swanctl/x509 /etc/swanctl/private 2>/dev/null
+    mkdir -p /etc/nginx/crl 2>/dev/null
+    mkdir -p /var/lib/vault/data /etc/vault 2>/dev/null
+    mkdir -p /etc/apparmor.d/local 2>/dev/null
+    mkdir -p /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly 2>/dev/null
+    mkdir -p /var/log/aide 2>/dev/null
+    mkdir -p /etc/zt/ztna.conf.d 2>/dev/null
+    mkdir -p /var/lib/boundary /etc/boundary/zones 2>/dev/null
+    mkdir -p /var/lib/suricata/rules 2>/dev/null
+    mkdir -p /var/log/suricata 2>/dev/null
+    mkdir -p /etc/suricata/rules/custom 2>/dev/null
+    mkdir -p /opt/pki/crl 2>/dev/null
+    mkdir -p /etc/nginx/conf.d 2>/dev/null
+    mkdir -p /etc/nginx/sites-available 2>/dev/null
+    mkdir -p /var/lib/strongswan 2>/dev/null
+    mkdir -p /var/lib/strongswan/charon 2>/dev/null
+    mkdir -p /var/www/html 2>/dev/null
+    mkdir -p /etc/nginx/conf.d/ 2>/dev/null
+    mkdir -p /var/log/nginx 2>/dev/null
+    mkdir -p /var/cache/nginx 2>/dev/null
+    mkdir -p /etc/nginx/modules-enabled 2>/dev/null
+    mkdir -p /etc/nginx/sites-enabled 2>/dev/null
+    mkdir -p /usr/share/nginx/html 2>/dev/null
+    # Ensure no permissions are modified
+    log "All necessary directories have been created under /opt/pki and /etc/swanctl. No permissions were modified."
+}
+
+
+function set_permissions() {
+    log "Applying permissions, ACLs, creating missing directories, and repairing symlinks..."
+    local errors=0
+    local warnings=0
+
+    # === SECTION 1: CREATE DIRECTORIES ===
+    log "Creating necessary directories if missing..."
+    # Base directories
+    mkdir -p /opt/pki/private /opt/pki/x509 /opt/pki/crl 2>/dev/null
+    mkdir -p /etc/nftables.d 2>/dev/null
+    mkdir -p /etc/swanctl/x509 /etc/swanctl/private 2>/dev/null
+    mkdir -p /etc/nginx/crl 2>/dev/null
+    mkdir -p /var/lib/vault/data /etc/vault 2>/dev/null
+    mkdir -p /etc/apparmor.d/local 2>/dev/null
+    mkdir -p /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly 2>/dev/null
+    mkdir -p /var/log/aide 2>/dev/null
+    mkdir -p /etc/zt/ztna.conf.d 2>/dev/null
+    mkdir -p /var/lib/boundary /etc/boundary/zones 2>/dev/null
+    mkdir -p /var/lib/suricata/rules 2>/dev/null
+    mkdir -p /var/log/suricata 2>/dev/null
+    mkdir -p /etc/suricata/rules/custom 2>/dev/null
+    mkdir -p /opt/pki/crl 2>/dev/null
+    mkdir -p /etc/nginx/conf.d 2>/dev/null
+    mkdir -p /etc/nginx/sites-available 2>/dev/null
+    mkdir -p /var/lib/strongswan 2>/dev/null
+    mkdir -p /var/lib/strongswan/charon 2>/dev/null
+    mkdir -p /var/www/html 2>/dev/null
+    mkdir -p /etc/nginx/conf.d/ 2>/dev/null
+    mkdir -p /var/log/nginx 2>/dev/null
+    mkdir -p /var/cache/nginx 2>/dev/null
+    mkdir -p /etc/nginx/modules-enabled 2>/dev/null
+    mkdir -p /etc/nginx/sites-enabled 2>/dev/null
+    mkdir -p /usr/share/nginx/html 2>/dev/null
+
+
+    # === SECTION 2: BASE PERMISSIONS ===
+    log "Setting base ownership and permissions..."
+    # Core directories
+    chown -R root:root /opt/pki /etc/swanctl >/dev/null 2>&1 || ((warnings++))
+    chmod 751 /opt/pki/private /etc/swanctl /etc/swanctl/x509 /etc/nginx >/dev/null 2>&1 || ((warnings++))
+    chmod 750 /etc/swanctl/private >/dev/null 2>&1 || ((warnings++))
+    chmod 755 /opt/pki/x509 /opt/pki/crl >/dev/null 2>&1 || ((warnings++))
+    chmod 755 /etc/nginx/crl >/dev/null 2>&1 || ((warnings++))
+    chmod 644 /etc/nftables.d/* >/dev/null 2>&1 || ((warnings++))
+    
+    # Boundary DB permissions
+    if [ -f "/var/lib/boundary/boundary.db" ]; then 
+        chown boundary:boundary /var/lib/boundary/boundary.db >/dev/null 2>&1 || ((warnings++))
+        chmod 640 /var/lib/boundary/boundary.db >/dev/null 2>&1 || ((warnings++))
+    fi
+    # Set proper ownership and permissions
+    chown -R suricata:suricata /var/log/suricata /var/lib/suricata /etc/suricata >/dev/null 2>&1 || ((warnings++))
+    chmod -R 755 /var/log/suricata /var/lib/suricata /etc/suricata >/dev/null 2>&1 || ((warnings++))
+
+    # Apply ACLs
+    setfacl -R -m u:suricata:rwx /var/log/suricata /var/lib/suricata /etc/suricata >/dev/null 2>&1 || ((warnings++))
+
+    # === SECTION 3: VAULT DIRECTORIES ===
+    log "Setting Vault directory permissions..."
+    # Vault directories with specific permissions
+    chown vault:vault /var/lib/vault /var/lib/vault/data /etc/vault /etc/vault/config.hcl >/dev/null 2>&1 || ((warnings++))
+    chmod 750 /var/lib/vault /etc/vault /var/lib/vault/data >/dev/null 2>&1 || ((warnings++))
+    chmod 750 /etc/vault >/dev/null 2>&1 || ((warnings++))
+    chmod 640 /etc/vault/config.hcl >/dev/null 2>&1 || ((warnings++))
+    chown -R vault:vault /var/lib/vault /etc/vault >/dev/null 2>&1 || ((warnings++))
+ 
+    # === SECTION 4: SECURITY HARDENING ===
+    log "Setting security-hardened permissions for system files..."
+    # SSH and cron security
+    chmod 600 /etc/ssh/sshd_config >/dev/null 2>&1 || ((warnings++))
+    chmod 700 /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly >/dev/null 2>&1 || ((warnings++))
+    chmod 600 /etc/crontab >/dev/null 2>&1 || ((warnings++))
+    chmod 750 /var/lib/boundary /etc/boundary/zones >/dev/null 2>&1 || ((warnings++))
+    
+    # Cron scripts
+    find /etc/cron.daily -type f -exec chmod 700 {} \; >/dev/null 2>&1
+    
+    # AppArmor profiles
+    if [ -d "/etc/apparmor.d/local" ]; then
+        chmod 750 /etc/apparmor.d/local >/dev/null 2>&1 || ((warnings++))
+        find /etc/apparmor.d/local -type f -exec chmod 640 {} \; >/dev/null 2>&1
+    fi
+    
+    # System config files
+    find /etc/sysctl.d -type f -name "*.conf" -exec chmod 644 {} \; >/dev/null 2>&1
+    find /etc/systemd/system.conf.d -type f -exec chmod 644 {} \; >/dev/null 2>&1 
+    find /etc/systemd/system -path "*/service.d/*.conf" -exec chmod 644 {} \; >/dev/null 2>&1
+    
+    # === SECTION 5: SYMLINK REPAIR ===
+    log "Repairing broken symlinks..."
+    # Clean up broken symlinks
+    find /etc -type l -exec test ! -e {} \; -delete >/dev/null 2>&1
+    find /opt -type l -exec test ! -e {} \; -delete >/dev/null 2>&1
+    find /var -type l -exec test ! -e {} \; -delete >/dev/null 2>&1
+    
+    # Create required symlinks if missing
+    if [ ! -e "/etc/nginx/sites-enabled" ] && [ -d "/etc/nginx/sites-available" ]; then
+        ln -sf /etc/nginx/sites-available /etc/nginx/sites-enabled >/dev/null 2>&1 || ((warnings++))
+    fi
+    if [ -d "/etc/boundary/zones" ]; then
+        find /etc/boundary/zones -name "credentials.txt" -exec chown boundary:boundary {} \; -exec chmod 600 {} \; >/dev/null 2>&1
+    fi
+
+    # === SECTION 6: LOG DIRECTORY PERMISSIONS ===
+    log "Setting log directory permissions..."
+    # Nginx logs
+    chown -R root:adm /var/log/nginx >/dev/null 2>&1 || ((warnings++))
+    chmod -R 750 /var/log/nginx >/dev/null 2>&1 || ((warnings++))
+
+    # Suricata logs
+    chown -R suricata:suricata /var/log/suricata >/dev/null 2>&1 || ((warnings++))
+    chmod -R 750 /var/log/suricata >/dev/null 2>&1 || ((warnings++))
+    
+    # Specific Suricata log files for syslog-ng
+    for suricata_log in /var/log/suricata/eve.json /var/log/suricata/fast.log /var/log/suricata/suricata.log /var/log/suricata/stats.log; do
+        [ -f "$suricata_log" ] || touch "$suricata_log" >/dev/null 2>&1
+        chown suricata:adm "$suricata_log" >/dev/null 2>&1 || ((warnings++))
+        chmod 640 "$suricata_log" >/dev/null 2>&1 || ((warnings++))
+    done
+    
+    # Watchdog logs
+    [ -d /var/log/suricata_watchdog_actions ] || mkdir -p /var/log/suricata_watchdog_actions >/dev/null 2>&1
+    [ -f /var/log/suricata_watchdog_actions/actions.log ] || touch /var/log/suricata_watchdog_actions/actions.log >/dev/null 2>&1
+    chown suricatawatchdog:adm /var/log/suricata_watchdog_actions/actions.log >/dev/null 2>&1 || ((warnings++))
+    chmod 640 /var/log/suricata_watchdog_actions/actions.log >/dev/null 2>&1 || ((warnings++))
+
+    # System logs
+    for sys_log in /var/log/auth.log /var/log/cron.log /var/log/charon.log /var/log/swanctl_user_check.log; do
+        [ -f "$sys_log" ] || touch "$sys_log" >/dev/null 2>&1
+        chown root:adm "$sys_log" >/dev/null 2>&1 || ((warnings++))
+        chmod 640 "$sys_log" >/dev/null 2>&1 || ((warnings++))
+    done
+
+    # === SECTION 7: ACCESS CONTROL LISTS ===
+    log "Setting up ACLs for service accounts..."
+    # Suricata watchdog ACLs
+    setfacl -d -m u:suricatawatchdog:r /var/log/suricata >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:suricatawatchdog:rx /var/log/suricata >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:suricatawatchdog:r /var/log/suricata/eve.json >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:suricatawatchdog:rwx /var/log/suricata_watchdog_actions/actions.log >/dev/null 2>&1 || ((warnings++))
+
+    # Config file ACLs
+    setfacl -m u:suricatawatchdog:r /etc/strongconn.conf /etc/classifications.conf >/dev/null 2>&1 || ((warnings++))
+
+    # Execution ACLs
+    setfacl -m u:suricatawatchdog:rx /usr/bin/python3 >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:vault:rx /usr/bin/v-pki >/dev/null 2>&1 || ((warnings++))
+
+    # StrongSwan & Okta service ACLs
+    setfacl -R -m u:okta-service:rwx /opt/pki /var/lib/strongswan /etc/swanctl /etc/strongconn.conf /usr/bin/v-pki >/dev/null 2>&1 || ((warnings++))
+
+    # Python files ACLs
+    if [ -f "/var/lib/strongswan/local_event.py" ]; then
+        chmod 644 /var/lib/strongswan/local_event.py >/dev/null 2>&1 || ((warnings++))
+        chown okta-service:okta-service /var/lib/strongswan/local_event.py >/dev/null 2>&1 || ((warnings++))
+        setfacl -m u:okta-service:rwx /var/lib/strongswan/local_event.py >/dev/null 2>&1 || ((warnings++))
+    fi
+    
+    if [ -f "/var/lib/strongswan/tasks.py" ]; then
+        chmod 644 /var/lib/strongswan/tasks.py >/dev/null 2>&1 || ((warnings++))
+        chown okta-service:okta-service /var/lib/strongswan/tasks.py >/dev/null 2>&1 || ((warnings++))
+        setfacl -m u:okta-service:rwx /var/lib/strongswan/tasks.py >/dev/null 2>&1 || ((warnings++))
+    fi
+    
+    # Boundary ACLs
+    setfacl -m u:boundary:r /opt/pki/x509/boundary-ip.pem /opt/pki/private/boundary-ip-key.pem /opt/pki/x509/ca.pem /etc/boundary/zones >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:boundary:r /etc/boundary/server-cert.pem /etc/boundary/server-key.pem /etc/boundary/ca.pem >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:boundary:r /etc/boundary/zones >/dev/null 2>&1 || ((warnings++))
+    # For Vault
+    setfacl -R -m u:vault:rwx /var/lib/vault /etc/vault >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -m u:vault:rwx /var/lib/vault/data >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -m u:vault:rwx /var/lib/vault/tls >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -m u:vault:rwx /var/lib/vault/tls/vault.pem /var/lib/vault/tls/vault-key.pem >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -m u:vault:rwx /etc/vault/config.hcl >/dev/null 2>&1 || ((warnings++))
+
+# For Suricata
+    setfacl -R -m u:suricata:rwx /var/log/suricata /var/lib/suricata >/dev/null 2>&1 || ((warnings++))
+    setfacl -d -m u:suricata:rxw /var/lib/suricata >/dev/null 2>&1 || ((warnings++))
+    setfacl -d -m u:suricata:rxw /etc/suricata >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:suricata:rxw /var/lib/suricata >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:suricata:rxw /etc/suricata >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:suricata:rxw /var/log/suricata/eve.json >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:suricata:rxw /var/log/suricata/fast.log >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:suricata:rxw /var/log/suricata/stats.log >/dev/null 2>&1 || ((warnings++))
+    setfacl -m u:suricata:rxw /var/log/suricata/suricata.log >/dev/null 2>&1 || ((warnings++))
+
+    # Other service ACLs
+    setfacl -R -m u:suricatawatchdog:rx /opt/pki /var/lib/strongswan >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -m g:strongswan:rx /etc/swanctl >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -m u:www-data:rwx /var/log/nginx /var/cache/nginx >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -m d:u:www-data:rwx /var/log/nginx /var/cache/nginx >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -m u:boundary:rwx -m g:boundary:rx /var/lib/boundary /etc/boundary/zones >/dev/null 2>&1 || ((warnings++))
+    
+    # Vault access ACLs
+    setfacl -m u:vault:r /opt/pki/x509/vault.pem /opt/pki/x509/ca.pem /opt/pki/crl/crl.der /opt/pki/private/vault-key.pem /etc/strongconn.conf >/dev/null 2>&1 || ((warnings++))
+
+        # Nginx ACLs
+    setfacl -R -m u:www-data:rwx,g:www-data:rwx,o:r-x /var/www/html >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -d -m u:www-data:rwx,g:www-data:rwx,o:r-x /var/www/html >/dev/null 2>&1 || ((warnings++))
+    # Set ACLs for NGINX configuration directory
+    setfacl -R -m u:www-data:rwx,g:www-data:rwx,o:r-x /etc/nginx >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -d -m u:www-data:rwx,g:www-data:rwx,o:r-x /etc/nginx >/dev/null 2>&1 || ((warnings++))
+
+    # Set ACLs for NGINX log directory
+    setfacl -R -m u:www-data:rwx,g:www-data:rwx,o:r-x /var/log/nginx >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -d -m u:www-data:rwx,g:www-data:rwx,o:r-x /var/log/nginx >/dev/null 2>&1 || ((warnings++))
+
+    # Set ACLs for NGINX cache directory
+    setfacl -R -m u:www-data:rwx,g:www-data:rwx,o:r-x /var/cache/nginx >/dev/null 2>&1 || ((warnings++))
+    setfacl -R -d -m u:www-data:rwx,g:www-data:rwx,o:r-x /var/cache/nginx  >/dev/null 2>&1 || ((warnings++))
+
+    # Set ACLs for 404 error page
+    setfacl -m u:www-data:rw-,g:www-data:rw-,o:r-- /usr/share/nginx/html/404.html >/dev/null 2>&1 || ((warnings++))
+    # Private key ACLs
+    find /opt/pki/private -type f -name "*.key.pem" -exec setfacl -m g:strongswan:r {} + >/dev/null 2>&1 || ((warnings++))
+
+    setfacl -m u:www-data:rwx /usr/share/nginx/html/404.htm >/dev/null 2>&1 || ((warnings++))
+    
+    # === SECTION 8: SYMLINK CREATION ===
+    log "Creating required symlinks..."
+    
+    # Define and create all required symlinks
+    declare -A symlinks=(
+        ["/etc/swanctl/x509/server.pem"]="/opt/pki/x509/server-ip.pem"
+        ["/etc/swanctl/x509/${DNS_NAME}.server.pem"]="/opt/pki/x509/server-dns.pem"
+        ["/etc/swanctl/private/${DNS_NAME}.server.key.pem"]="/opt/pki/private/server-dns-key.pem"
+        ["/etc/swanctl/private/server-key.pem"]="/opt/pki/private/server-ip-key.pem"
+        ["/etc/swanctl/x509ca/ca.pem"]="/opt/pki/x509/ca.pem"
+        ["/etc/swanctl/x509ocsp/ocsp.pem"]="/opt/pki/x509/ocsp.pem"
+        ["/etc/swanctl/x509crl/crl.der"]="/opt/pki/crl/crl.der"
+        ["/etc/nginx/crl/crl.der"]="/opt/pki/crl/crl.der"
+        ["/etc/nginx/nginx.pem"]="/opt/pki/x509/vault.pem"
+        ["/etc/nginx/nginx-key.pem"]="/opt/pki/private/vault-key.pem"
+        ["/etc/ssl/certs/ca.pem"]="/opt/pki/x509/ca.pem"
+        ["/usr/local/share/ca-certificates/vault-ca.crt"]="/opt/pki/x509/ca.pem"
+        ["/etc/boundary/server-cert.pem"]="/opt/pki/x509/boundary-ip.pem"
+        ["/etc/boundary/server-key.pem"]="/opt/pki/private/boundary-ip-key.pem"
+        ["/etc/boundary/ca.pem"]="/opt/pki/x509/ca.pem"
+        ["/etc/vault/tls/vault.pem"]="/opt/pki/x509/vault.pem"
+        ["/etc/vault/tls/vault-key.pem"]="/opt/pki/private/vault-key.pem"
+    )
+
+    for link in "${!symlinks[@]}"; do
+        target="${symlinks[$link]}"
+        mkdir -p "$(dirname "$link")" >/dev/null 2>&1
+        if [[ -e "$target" ]]; then
+            ln -sf "$target" "$link" >/dev/null 2>&1 || log "Failed to create symlink $link -> $target" && ((warnings++))
+        else
+            log "Target $target for symlink $link does not exist"
+            ((warnings++))
+        fi
+    done
+
+    # === SECTION 9: FILE-SPECIFIC ACLS ===
+    log "Setting file-specific ACLs..."
+
+    # Vault-specific files
+    for file in /etc/vault/tls/vault-key.pem /etc/vault/tls/vault.pem /etc/vault/config.hcl; do
+        if [[ -f "$file" ]]; then
+            setfacl -m u:root:rw,u:vault:r "$file" >/dev/null 2>&1 || ((warnings++))
+            chmod 640 "$file" >/dev/null 2>&1 || ((warnings++))
+        fi
+    done
+    
+    # Set proper permissions on Boundary symlinks
+    for boundary_file in /etc/boundary/server-cert.pem /etc/boundary/server-key.pem /etc/boundary/ca.pem; do
+        if [[ -L "$boundary_file" && -e "$boundary_file" ]]; then
+            chown -h boundary:boundary "$boundary_file" >/dev/null 2>&1 || ((warnings++))
+            # Set permissions on the target file
+            target_file=$(readlink -f "$boundary_file")
+            if [[ -f "$target_file" ]]; then
+                # For key files, more restrictive permissions
+                if [[ "$boundary_file" == *"key"* ]]; then
+                    chmod 600 "$target_file" >/dev/null 2>&1 || ((warnings++))
+                    setfacl -m u:boundary:r "$target_file" >/dev/null 2>&1 || ((warnings++))
+                else
+                    chmod 644 "$target_file" >/dev/null 2>&1 || ((warnings++))
+                    setfacl -m u:boundary:r "$target_file" >/dev/null 2>&1 || ((warnings++))
+                fi
+            fi
+        fi
+    done
+    find /etc/nginx/conf.d/ -type f -name "*.conf" -exec chmod 644 {} \; 2>/dev/null || true >/dev/null 2>&1 || ((warnings++))
+    find /etc/nginx/modules-enabled/ -type f -name "*.conf" -exec chmod 644 {} \; 2>/dev/null || true >/dev/null 2>&1 || ((warnings++))
+    find /etc/nginx/sites-enabled/ -type f -exec chmod 644 {} \; 2>/dev/null || true >/dev/null 2>&1 || ((warnings++))
+
+    # === SUMMARY ===
+    if [ $errors -gt 0 ]; then
+        log "WARNING: $errors critical errors occurred during permission setup"
+        return 1
+    elif [ $warnings -gt 0 ]; then
+        log "NOTICE: $warnings non-critical issues occurred during permission setup"
+    else
+        log "Permissions, ACLs, and symlinks setup completed successfully!"
+    fi
+    
+    return 0
+}
+
+function cleanup() {
+    local files=("$@")
+    for file in "${files[@]}"; do
+        [[ -f "$file" ]] && rm -f "$file" && echo "Cleaned up: $file"
+    done
+}
+
+function export_cert() {
+    local email="$1"
+    local output_dir="$2"
+    local p12_password="advantive"  # Change this if needed
+
+    if [[ -z "$email" || -z "$output_dir" ]]; then
+        log "Usage: v-pki export-cert <email> <output_directory>"
+        exit 1
+    fi
+    
+    # Normalize output_dir
+    output_dir=$(realpath -m "$output_dir")
+
+    # Ensure Vault environment variables are set
+    VAULT_ADDR="${VAULT_ADDR:-https://127.0.0.1:8200}"
+    export VAULT_ADDR VAULT_TOKEN
+
+    log "Fetching certificate serial number for $email..."
+    SERIAL=$(sudo v-pki list | grep -B1 "$email" | head -n1 | awk '{print $2}')
+
+    if [[ -z "$SERIAL" ]]; then
+        log "Error: No certificate found for $email."
+        exit 1
+    fi
+    log "Found certificate serial: $SERIAL"
+
+    log "Retrieving certificate from Vault..."
+    CERT_DATA=$(vault read -format=json pki/cert/$SERIAL)
+    CERT_PEM=$(echo "$CERT_DATA" | jq -r '.data.certificate')
+
+    if [[ -z "$CERT_PEM" || "$CERT_PEM" == "null" ]]; then
+        log "Error: Missing certificate data from Vault."
+        exit 1
+    fi
+
+    log "Retrieving private key from Vault..."
+    KEY_DATA=$(vault kv get -format=json kv/private-keys/$email)
+    KEY_PEM=$(echo "$KEY_DATA" | jq -r '.data.private_key')
+
+    if [[ -z "$KEY_PEM" || "$KEY_PEM" == "null" ]]; then
+        log "Error: Missing private key for $email."
+        exit 1
+    fi
+
+    # Ensure output directory exists
+    mkdir -p "$output_dir"
+
+    local cert_file="$output_dir/$email.crt"
+    local key_file="$output_dir/$email.key"
+    local p12_file="$output_dir/$email.p12"
+
+    log "Saving certificate to $cert_file"
+    echo "$CERT_PEM" > "$cert_file"
+
+    log "Saving private key to $key_file"
+    echo "$KEY_PEM" > "$key_file"
+
+    log "Creating PKCS#12 (.p12) bundle with CA certificate..."
+    openssl pkcs12 -export -out "$p12_file" \
+        -inkey "$key_file" \
+        -in "$cert_file" \
+        -certfile /opt/pki/x509/ca.pem \
+        -password pass:$p12_password
+
+    if [[ $? -ne 0 ]]; then
+        log "Error: Failed to create PKCS#12 bundle."
+        exit 1
+    fi
+
+    log "Export complete: $p12_file"
+}
+
+function generate_client() {
+    local email=$1
+    local ttl=$2
+    local cert_role=${3:-"client"}  # Use 'client' as default role
+    source "$CONFIG_PATH"  # Load config variables
+    
+    if [[ -z "$email" || -z "$ttl" ]]; then
+        echo "Usage: generate-client EMAIL TTL(in days) [CERT_ROLE]"
+        exit 1
+    fi
+
+    if [[ -z "$PFX_PASSWORD" ]]; then
+        echo "PFX_PASSWORD is not set in the configuration file ($CONFIG_PATH)."
+        exit 1
+    fi
+
+    # Ensure VAULT_TOKEN is set from environment, not overridden
+    if [[ -z "$VAULT_TOKEN" ]]; then
+        echo "Error: VAULT_TOKEN is not set in the environment."
+        echo "Please set VAULT_TOKEN (e.g., export VAULT_TOKEN=\"your-token\") and try again."
+        exit 1
+    fi
+
+    echo "Checking for existing certificates for $email..."
+    local existing_cert=$(sudo v-pki list | grep -A 2 "$email" | grep -i "Expiry" | head -n 1)
+    
+    if [[ -n "$existing_cert" ]]; then
+        local expiry_date=$(echo "$existing_cert" | awk '{print $2, $3, $4, $5, $6}')
+        local expiry_epoch=$(date -d "$expiry_date" +%s 2>/dev/null)
+        local current_epoch=$(date +%s)
+
+        if [[ -z "$expiry_epoch" ]]; then
+            echo "Error: Unable to parse expiry date '$expiry_date'. Proceeding to generate a new certificate."
+        elif (( expiry_epoch > current_epoch )); then
+            echo "Certificate for $email is still valid. Expiry: $expiry_date"
+            echo "Not generating a duplicate certificate."
+            return 0
+        else
+            echo "Existing certificate for $email has expired. Proceeding to generate a new one."
+        fi
+    else
+        echo "No existing certificates found for $email."
+    fi
+
+    echo "Generating client certificate for $email with TTL $ttl using role $cert_role..."
+    local response=$(vault write -format=json \
+        pki/issue/$cert_role \
+        common_name="$email" \
+        ttl="${ttl}d" \
+        server_flag=false \
+        client_flag=true \
+        alt_names="email:$email")
+
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Vault API request failed."
+        echo "$response"
+        exit 1
+    fi
+
+    echo "Vault API response:"
+    echo "$response" | jq
+
+    local cert=$(echo "$response" | jq -r '.data.certificate')
+    local key=$(echo "$response" | jq -r '.data.private_key')
+    local ca_chain=$(echo "$response" | jq -r '.data.ca_chain[]')
+
+    if [[ -z "$cert" || "$cert" == "null" || -z "$key" || "$key" == "null" ]]; then
+        echo "Error: Failed to retrieve certificate or key from Vault API response."
+        exit 1
+    fi
+
+    local cert_path="/tmp/$email.pem"
+    local key_path="/tmp/$email-key.pem"
+    local ca_path="/tmp/ca.pem"
+    echo "$cert" > "$cert_path"
+    echo "$key" > "$key_path"
+    echo "$ca_chain" > "$ca_path"
+
+    echo "Storing private key for $email in Vault KV..."
+    vault kv put kv/private-keys/$email private_key="$(cat $key_path)" || {
+        echo "Error: Failed to store private key in Vault KV."
+        cleanup "$cert_path" "$key_path" "$ca_path"
+        exit 1
+    }
+
+    echo "Private key successfully stored in Vault KV under kv/private-keys/$email."
+
+    local p12_path="$CERT_DIR/$email.p12"
+    echo "Generating PKCS#12 file for $email..."
+    openssl pkcs12 -export \
+        -inkey "$key_path" \
+        -in "$cert_path" \
+        -certfile "$ca_path" \
+        -out "$p12_path" \
+        -password pass:"$PFX_PASSWORD"
+
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to generate PKCS#12 file for $email."
+        cleanup "$cert_path" "$key_path" "$ca_path"
+        exit 1
+    fi
+
+    sudo mkdir -p /opt/pki /opt/pki/x509
+    sudo mv "$p12_path" "/opt/pki/x509/${email}.p12"
+    sudo chown root:root "/opt/pki/x509/${email}.p12"
+    echo "Moved PKCS#12 file to /opt/pki/x509/${email}.p12"
+
+    generate_powershell_script "$email"
+
+    echo "Creating tar archive for $email..."
+    if [[ -f "/opt/pki/${email}_vpn_setup.ps1" && -f "/opt/pki/x509/${email}.p12" ]]; then
+        tar -C /opt/pki -czf "/opt/pki/${email}.tar.gz" \
+            "${email}_vpn_setup.ps1" \
+            "x509/${email}.p12" \
+            --transform "s|x509/||"
+        if [[ $? -ne 0 || ! -s "/opt/pki/${email}.tar.gz" ]]; then
+            echo "Error: Failed to create tar file or it's empty."
+            cleanup "$cert_path" "$key_path" "$ca_path"
+            exit 1
+        fi
+    else
+        echo "Error: Required files for tar not found."
+        echo "  - Expected: /opt/pki/${email}_vpn_setup.ps1 and /opt/pki/x509/${email}.p12"
+        cleanup "$cert_path" "$key_path" "$ca_path"
+        exit 1
+    fi
+
+    rm -f "/opt/pki/${email}_vpn_setup.ps1" "/opt/pki/x509/${email}.p12"
+    cleanup "$cert_path" "$key_path" "$ca_path"
+
+    echo "Client certificate for $email generated and stored successfully."
+    echo "Details:"
+    echo "  - PKCS#12 File: Originally at $p12_path"
+    echo "  - Private key securely stored in Vault KV under kv/private-keys/$email."
+    echo "  - Archived files: /opt/pki/${email}.tar.gz"
+}
+
+function cleanup() {
+    echo "Cleaning up temporary files..."
+    for file in "$@"; do
+        if [[ -f "$file" ]]; then
+            rm -f "$file"
+            echo "Deleted: $file"
+        fi
+    done
+}
+
+function generate_host() {
+    local hostname=$1
+    local ttl=$2
+    source $CONFIG_PATH
+    local PFX_PASSWORD=${CONFIG_PATH}
+    local VAULT_TOKEN=${CONFIG_PATH}
+  
+    if [[ -z "$hostname" || -z "$ttl" ]]; then
+        echo "Usage: generate-host HOSTNAME TTL(in days)"
+        exit 1
+    fi
+
+    if [[ -z "$PFX_PASSWORD" ]]; then
+        echo "PFX_PASSWORD is not set in the configuration file."
+        exit 1
+    fi
+
+    echo "Checking for existing certificates for $hostname..."
+
+    local existing_cert=$(sudo v-pki list | grep "$hostname")
+    if [[ -n "$existing_cert" ]]; then
+        local expiry=$(echo "$existing_cert" | grep -oP 'Expiry: \K.*GMT')
+        if [[ -n "$expiry" ]]; then
+            if date -d "$expiry" > /dev/null 2>&1; then
+                if [[ $(date -d "$expiry" +%s) -gt $(date +%s) ]]; then
+                    echo "Certificate for $hostname is still valid. Expiry: $expiry"
+                    echo "Not generating a duplicate certificate."
+                    exit 0
+                fi
+            else
+                echo "Error parsing expiry date: $expiry"
+            fi
+        fi
+    fi
+
+    echo "Generating host certificate for $hostname with TTL $ttl..."
+
+    local response=$(vault write -format=json pki/issue/hostname \
+        common_name="$hostname" \
+        server_flag="false", \
+        client_flag="true", \
+        ttl="${ttl}d")
+
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Vault API request failed."
+        echo "$response"
+        exit 1
+    fi
+
+    echo "Vault API response:"
+    echo "$response" | jq
+
+
+    local cert=$(echo "$response" | jq -r '.data.certificate')
+    local key=$(echo "$response" | jq -r '.data.private_key')
+    local ca_chain=$(echo "$response" | jq -r '.data.ca_chain[]')
+
+    if [[ -z "$cert" || "$cert" == "null" || -z "$key" || "$key" == "null" ]]; then
+        echo "Error: Failed to retrieve certificate or key from Vault API response."
+        exit 1
+    fi
+
+    local cert_path="/tmp/$hostname.pem"
+    local key_path="/tmp/$hostname-key.pem"
+    local ca_path="/tmp/ca.pem"
+
+    echo "$cert" > "$cert_path"
+    echo "$key" > "$key_path"
+    echo "$ca_chain" > "$ca_path"
+
+    local p12_path="$CERT_DIR/$hostname.p12"
+    echo "Generating PKCS#12 file for $hostname..."
+    openssl pkcs12 -export \
+        -inkey "$key_path" \
+        -in "$cert_path" \
+        -certfile "$ca_path" \
+        -out "$p12_path" \
+        -password pass:"$PFX_PASSWORD"
+
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to generate PKCS#12 file for $hostname."
+        rm -f "$cert_path" "$key_path" "$ca_path"
+        exit 1
+    fi
+
+    echo "Storing private key for $hostname in Vault KV..."
+    vault  kv put kv/private-keys/$hostname private_key="$(cat $key_path)" || {
+        echo "Error: Failed to store private key in Vault KV."
+        exit 1
+    }
+
+    echo "Private key successfully stored in Vault KV under kv/private-keys/$hostname."
+
+   
+
+    echo "Host certificate for $hostname generated and stored successfully."
+    echo "Details:"
+    echo "  - PKCS#12 File: $p12_path"
+    echo "  - Private key securely stored in Vault KV under kv/private-keys/$hostname."
+    generate_powershell_script "$hostname"
+    echo "PowerShell script and PKCS#12 file archived at /opt/pki/${hostname}.tar.gz"
+    tar -C /opt/pki -czf /opt/pki/${hostname}.tar.gz \
+
+        ${hostname}_vpn_setup.ps1 \
+        x509/${hostname}.p12 \
+        --transform 's|x509/||'
+    rm -f /opt/pki/${hostname}_vpn_setup.ps1 /opt/pki/x509/${hostname}.p12
+    rm -f "$cert_path" "$key_path" "$ca_path"
+    echo "PowerShell script and PKCS#12 file archived at /opt/pki/${hostname}.tar.gz"
+}
+
+function revoke_pki() {
+    local serial=$1
+    
+    # Load configuration and environment variables
+    source "$CONFIG_PATH" 2>/dev/null || { echo "Error: Could not load config from $CONFIG_PATH"; return 1; }
+    
+    # Set VAULT_ADDR explicitly if not set
+    VAULT_ADDR="${VAULT_ADDR:-https://127.0.0.1:8200}"
+    export VAULT_ADDR
+
+    # Check usage and required variables
+    if [[ -z "$serial" ]]; then
+        echo "Usage: revoke_pki SERIAL_NUMBER"
+        return 1
+    fi
+    if [[ -z "$VAULT_TOKEN" ]]; then
+        echo "Error: VAULT_TOKEN is not set. Please log in to Vault or set a valid token."
+        return 1
+    fi
+
+    echo "Revoking certificate with serial number: $serial..."
+
+    # Perform the API call to revoke the certificate
+    local response
+    response=$(vault write -format=json pki/revoke serial_number="$serial" 2>&1)
+    local exit_code=$?
+
+    # Check if the vault command succeeded
+    if [[ $exit_code -ne 0 ]]; then
+        echo "Error: Vault API request failed."
+        echo "Response: $response"
+        return 1
+    fi
+
+    # Parse the response
+    echo "Vault API response:"
+    echo "$response" | jq
+
+    local revoked
+    revoked=$(echo "$response" | jq -r '.data.revocation_time')
+    if [[ -z "$revoked" || "$revoked" == "null" ]]; then
+        echo "Error: Failed to revoke certificate with serial number: $serial."
+        return 1
+    fi
+
+    echo "Certificate with serial number $serial has been successfully revoked at time: $revoked."
+    echo "Triggering CRL regeneration..."
+
+    # Tidy up the CRL
+    local crl_response
+    crl_response=$(vault write -format=json pki/tidy tidy_cert_store=true tidy_revoked_certs=true 2>&1)
+    if [[ $? -ne 0 ]]; then
+        echo "Warning: Failed to regenerate the CRL."
+        echo "CRL Response: $crl_response"
+        # Not returning here since revocation succeeded
+    else
+        echo "CRL regeneration triggered successfully."
+    fi
+
+    echo "Fetching the updated CRL..."
+    curl -o /opt/pki/crl/crl.der "$VAULT_ADDR/v1/pki/crl" --insecure 2>/dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Warning: Failed to fetch the updated CRL."
+        echo "Check Vault connectivity or permissions."
+    else
+        echo "CRL updated successfully. Check /opt/pki/crl/crl.der for the latest CRL."
+    fi
+
+    return 0
+}
+
+
+function list_certificates() {
+    echo "Fetching all issued certificates..."
+ 
+    local config_file="/etc/strongconn.conf"
+    if [[ ! -f "$config_file" ]]; then
+        echo "Error: Configuration file $config_file not found."
+        return 1
+    fi
+    source $CONFIG_PATH
+    if [[ -z "$VAULT_TOKEN" || -z "$VAULT_ADDR" ]]; then
+        echo "Error: VAULT_TOKEN or VAULT_ADDR is not set in $config_file."
+        return 1
+    fi
+
+    local serial_numbers
+    serial_numbers=$(VAULT_TOKEN="$VAULT_TOKEN" VAULT_ADDR="$VAULT_ADDR" vault list -format=json pki/certs | jq -r '.[]')
+
+    if [[ -z "$serial_numbers" ]]; then
+        echo "No certificates found in the Vault PKI."
+        return 0
+    fi
+
+    echo "Detailed Certificate Information:"
+    echo "----------------------------------"
+
+    for serial in $serial_numbers; do
+        echo "Fetching details for serial: $serial..."
+        local cert_details
+        cert_details=$(VAULT_TOKEN="$VAULT_TOKEN" VAULT_ADDR="$VAULT_ADDR" vault read -format=json pki/cert/"$serial" 2>/dev/null)
+
+        if [[ $? -ne 0 || -z "$cert_details" ]]; then
+            echo "Warning: Could not fetch details for serial $serial. Skipping."
+            continue
+        fi
+
+        local pem_cert
+        pem_cert=$(echo "$cert_details" | jq -r '.data.certificate // empty')
+        if [[ -z "$pem_cert" ]]; then
+            echo "Warning: No PEM data for serial $serial. Skipping."
+            continue
+        fi
+
+        local subject
+        local expiry
+        subject=$(openssl x509 -noout -subject <<< "$pem_cert" 2>/dev/null | cut -d= -f2- | sed 's/^ //')
+        expiry=$(openssl x509 -noout -enddate <<< "$pem_cert" 2>/dev/null | cut -d= -f2-)
+
+        local revoked
+        local status="Valid"
+        revoked=$(echo "$cert_details" | jq -r '.data.revocation_time // empty')
+        if [[ -n "$revoked" && "$revoked" != "0" ]]; then
+            status="Revoked"
+        elif [[ "$expiry" != "Unknown" && "$(date -d "$expiry" +%s)" -lt "$(date +%s)" ]]; then
+            status="Expired"
+        fi
+
+        echo "Serial: $serial"
+        echo "  Subject: ${subject:-Unknown}"
+        echo "  Expiry: ${expiry:-Unknown}"
+        echo "  Status: $status"
+        echo ""
+    done
+}
+
+
+function help() {
+    echo "Vault PKI Helper Script"
+    echo "Usage: $0 [COMMAND] [OPTIONS]"
+    echo ""
+    echo "Commands:"
+    echo "  check-directories                Ensure necessary directories exist"
+    echo "  generate-client EMAIL TTL-DAYS   Generate client certificate (DAYS: 1-3650)"
+    echo "  revoke-pki SERIAL                Revoke a certificate by serial number"
+    echo "  generate-host HOSTNAME TTL-DAYS  Generate machine certificate (DAYS: 1-3650)"
+    echo "  list                             List all certificates in the Vault PKI"
+    echo "  set-permissions                  Set permissions, ACLs, and symlinks"
+    echo "  unseal-vault                     Unseal Vault"
+    echo "  export user@example.com ~/       export vault certificate"
+    echo "  seal-vault                       Seal Vault"
+    echo ""
+}
+
+# Main Script Logic
+if [[ $# -lt 1 ]]; then
+    help
+    exit 1
+fi
+
+COMMAND=$1
+shift
+
+case $COMMAND in
+    generate-client)
+        generate_client "$@"
+        ;;
+    revoke-pki)
+        revoke_pki "$@"
+        ;;
+    list)
+        list_certificates
+        ;;
+    generate_powershell)
+        generate_powershell_script "$@"
+        ;;
+    set-permissions)
+        set_permissions
+        ;;
+    check-directories)
+        check_directories
+        ;;
+    unseal-vault)
+        unseal_vault
+        ;;
+    seal-vault)
+        seal_vault
+        ;;
+    generate-host)
+        generate_host "$@"
+        ;;
+    export)
+        export_cert "$@"
+        ;;
+    *)
+        help
+        exit 1
+        ;;
+esac

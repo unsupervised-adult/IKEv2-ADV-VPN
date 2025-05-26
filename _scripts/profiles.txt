@@ -1,0 +1,214 @@
+INFO  [shh] Detected versions: Systemd 252.33, Linux kernel 6.1.0, strace 6.7
+INFO  [shh::systemd::service] stop syslog-ng.service
+INFO  [shh::systemd::service] "/run/systemd/system/syslog-ng.service.d/zz_shh-profile.conf" removed
+INFO  [shh] Resolved systemd options:
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=ptraceable
+LockPersonality=true
+RestrictRealtime=true
+ProtectClock=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+SocketBindDeny=ipv4:tcp
+SocketBindDeny=ipv4:udp
+SocketBindDeny=ipv6:tcp
+SocketBindDeny=ipv6:udp
+CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM
+SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM
+INFO  [shh::systemd::service] start syslog-ng.service
+
+INFO  [shh] Detected versions: Systemd 252.33, Linux kernel 6.1.0, strace 6.7
+INFO  [shh::systemd::service] stop fail2ban.service
+INFO  [shh::systemd::service] "/run/systemd/system/fail2ban.service.d/zz_shh-profile.conf" removed
+INFO  [shh] Resolved systemd options:
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=ptraceable
+LockPersonality=true
+RestrictRealtime=true
+ProtectClock=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX
+SocketBindDeny=ipv4:tcp
+SocketBindDeny=ipv4:udp
+SocketBindDeny=ipv6:tcp
+SocketBindDeny=ipv6:udp
+CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYSLOG CAP_WAKE_ALARM
+SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM
+INFO  [shh::systemd::service] start fail2ban.service
+
+INFO  [shh] Detected versions: Systemd 252.33, Linux kernel 6.1.0, strace 6.7
+INFO  [shh::systemd::service] stop suricata_watchdog.service
+INFO  [shh::systemd::service] "/run/systemd/system/suricata_watchdog.service.d/zz_shh-profile.conf" removed
+INFO  [shh] Resolved systemd options:
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=ptraceable
+LockPersonality=true
+RestrictRealtime=true
+ProtectClock=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=none
+SocketBindDeny=ipv4:tcp
+SocketBindDeny=ipv4:udp
+SocketBindDeny=ipv6:tcp
+SocketBindDeny=ipv6:udp
+CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYSLOG CAP_WAKE_ALARM
+SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM
+INFO  [shh::systemd::service] start suricata_watchdog.service
+
+INFO  [shh] Detected versions: Systemd 252.33, Linux kernel 6.1.0, strace 6.7
+INFO  [shh::systemd::service] stop suricata.service
+INFO  [shh::systemd::service] "/run/systemd/system/suricata.service.d/zz_shh-profile.conf" removed
+INFO  [shh] Resolved systemd options:
+ProtectSystem=full
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=ptraceable
+LockPersonality=true
+RestrictRealtime=true
+ProtectClock=true
+RestrictAddressFamilies=AF_INET AF_PACKET AF_UNIX
+SocketBindDeny=ipv4:tcp
+SocketBindDeny=ipv4:udp
+SocketBindDeny=ipv6:tcp
+SocketBindDeny=ipv6:udp
+CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_MKNOD CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYSLOG CAP_WAKE_ALARM
+SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM
+INFO  [shh::systemd::service] start suricata.service
+
+INFO  [shh] Detected versions: Systemd 252.33, Linux kernel 6.1.0, strace 6.7
+INFO  [shh::systemd::service] stop strongswan.service
+INFO  [shh::systemd::service] "/run/systemd/system/strongswan.service.d/zz_shh-profile.conf" removed
+INFO  [shh] Resolved systemd options:
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+ProtectClock=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_PACKET AF_UNIX
+SocketBindDeny=ipv4:tcp
+SocketBindDeny=ipv6:tcp
+CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_MKNOD CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYSLOG CAP_WAKE_ALARM
+SystemCallFilter=~@aio:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @swap:EPERM @sync:EPERM @timer:EPERM
+INFO  [shh::systemd::service] start strongswan.service
+
+INFO  [shh] Detected versions: Systemd 252.33, Linux kernel 6.1.0, strace 6.7
+INFO  [shh::systemd::service] stop ragent.service
+INFO  [shh::systemd::service] "/run/systemd/system/ragent.service.d/zz_shh-profile.conf" removed
+INFO  [shh] Resolved systemd options:
+ProtectSystem=full
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+ProtectClock=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+SocketBindDeny=ipv4:tcp
+SocketBindDeny=ipv4:udp
+SocketBindDeny=ipv6:tcp
+CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYSLOG CAP_WAKE_ALARM
+SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM
+INFO  [shh::systemd::service] start ragent.service
+
+INFO  [shh] Detected versions: Systemd 252.33, Linux kernel 6.1.0, strace 6.7
+INFO  [shh::systemd::service] stop ssh.service
+INFO  [shh::systemd::service] "/run/systemd/system/ssh.service.d/zz_shh-profile.conf" removed
+INFO  [shh] Resolved systemd options:
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+ProtectClock=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+SocketBindDeny=ipv4:udp
+SocketBindDeny=ipv6:udp
+CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM
+SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @swap:EPERM @sync:EPERM @timer:EPERM
+INFO  [shh] Detected versions: Systemd 252.33, Linux kernel 6.1.0, strace 6.7
+INFO  [shh::systemd::service] stop nginx.service
+INFO  [shh::systemd::service] "/run/systemd/system/nginx.service.d/zz_shh-profile.conf" removed
+INFO  [shh] Resolved systemd options:
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=ptraceable
+LockPersonality=true
+RestrictRealtime=true
+ProtectClock=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+SocketBindDeny=ipv4:udp
+SocketBindDeny=ipv6:tcp
+SocketBindDeny=ipv6:udp
+CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYSLOG CAP_WAKE_ALARM
+SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @swap:EPERM @sync:EPERM
+INFO  [shh::systemd::service] start nginx.service
+
+INFO  [shh] Detected versions: Systemd 252.33, Linux kernel 6.1.0, strace 6.7
+INFO  [shh::systemd::service] stop vault.service
+INFO  [shh::systemd::service] "/run/systemd/system/vault.service.d/zz_shh-profile.conf" removed
+INFO  [shh] Resolved systemd options:
+ProtectSystem=full
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=ptraceable
+LockPersonality=true
+RestrictRealtime=true
+ProtectClock=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+SocketBindDeny=ipv4:udp
+SocketBindDeny=ipv6:udp
+CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM
+SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @raw-io:EPERM @reboot:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM
+INFO  [shh::systemd::service] start vault.service
