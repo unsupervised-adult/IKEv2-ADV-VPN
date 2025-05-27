@@ -34,7 +34,7 @@ fi
 p12_basename=$(basename "$p12_file" | sed 's/\.[^.]*$//')
 certname="${p12_basename}-cert"
 keyname="${p12_basename}-key"
-remote_subnets="10.250.0.0/16,10.242.0.0/22,10.240.98.0/24"
+remote_subnets="10.0.0.0/24"
 
 if ! command -v openssl >/dev/null 2>&1; then
     echo "ERROR: OpenSSL is required but not installed. Please install it (e.g., 'brew install openssl')" >&2
