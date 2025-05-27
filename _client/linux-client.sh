@@ -244,7 +244,7 @@ connections {
                 if_id_in = 33 
                 if_id_out = 33
                 local_ts = 0.0.0.0/0
-                remote_ts = 10.250.0.0/16,10.242.0.0/16
+                remote_ts = 10.0.0.0/24
                 mode = tunnel
                 esp_proposals = aes256-sha256, aes256gcm16-ecp256, aes256gcm16, aes256-sha256-ecp256, aes256-sha256-ecp384, aes256-sha384-ecp384, aes256-sha256-ecp521
                 updown = "/usr/libexec/strongswan/_updown"
@@ -311,11 +311,11 @@ VPN_IP=$(echo "$PLUTO_MY_CLIENT" | grep -oP '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
 already_setup() {
     ip link show "$XFRM_INTERFACE" &>/dev/null && \
     ip addr show "$XFRM_INTERFACE" | grep -q "$VPN_IP" && \
-    ip route show table "$TABLE_ID" 2>/dev/null | grep -q "10.250.0.0/16" && \
-    ip route show table "$TABLE_ID" 2>/dev/null | grep -q "10.242.0.0/16" && \
+    ip route show table "$TABLE_ID" 2>/dev/null | grep -q "10.2.0.0/16" && \
+    ip route show table "$TABLE_ID" 2>/dev/null | grep -q "10.0.0.0/16" && \
     ip rule show | grep -q "from $VPN_IP lookup $TABLE_ID" && \
-    ip rule show | grep -q "to 10.250.0.0/16 lookup $TABLE_ID" && \
-    ip rule show | grep -q "to 10.242.0.0/16 lookup $TABLE_ID"
+    ip rule show | grep -q "to 10.2.0.0/16 lookup $TABLE_ID" && \
+    ip rule show | grep -q "to 10.0.0.0/16 lookup $TABLE_ID"
 }
 
 manage_xfrm_interface() {
