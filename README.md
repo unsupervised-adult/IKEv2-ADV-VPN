@@ -1,6 +1,6 @@
 # Adv Access Gateway
 
-![StrongSwan Logo](_images/cropped-ADV-Favicon-180x180.png)
+![StrongSwan Logo](_/images/Strongswan.png))
 
 A comprehensive solution for secure remote access with multiple authentication methods, intrusion detection, and dynamic security management.
 
